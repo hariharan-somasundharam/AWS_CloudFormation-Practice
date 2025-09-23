@@ -1,0 +1,40 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: SNS topic creation
+
+Parameters:
+  NotificationEmail:
+    Type: String
+    Description: Email address to receive alarm notifications
+    Default: hariharan@humworld.in
+    AllowedPattern: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
+
+Resources: 
+  HarishSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: Harish's CloudFormation SNS Topic
+      TopicName: Harish-CF-Alarm
+      KmsMasterKeyId: alias/aws/sns
+
+  EmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref HarishSNSTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+      Region: us-west-2
+
+
+Outputs:
+  SNSTopicArn:
+    Description: SNS Topic Id
+    Value: !Ref HarishSNSTopic
+    Export:
+      Name: HarishSNSTopicArn
+  
+  SNSTopicName:
+    Description: Name of the SNS Topic
+    Value: !GetAtt HarishSNSTopic.TopicName
+    Export:
+      Name: HarishSNSTopicName
+  

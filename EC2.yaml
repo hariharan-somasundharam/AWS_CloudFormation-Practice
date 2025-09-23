@@ -1,0 +1,163 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2 Instance using existing VPC resources via Cross-Stack References
+
+Parameters:
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    Description: Latest Amazon Linux 2 AMI ID
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair for SSH access
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+
+  VPCStackName:
+    Type: String
+    Default: VPCWithSecurityGroup
+    Description: Name of the CloudFormation stack that contains the VPC and Security Group.
+
+Resources:
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: t3.micro
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            Fn::Sub: "${VPCStackName}-SecurityGroupID"
+      SubnetId:
+        Fn::ImportValue:
+          Fn::Sub: "${VPCStackName}-PublicSubnet1ID"
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash -ex
+          # -------------------------
+          # System updates + Apache
+          # -------------------------
+          yum update -y
+          yum install httpd -y
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<center><h1>This instance is created via a SEPARATE CloudFormation Template</h1></center>" | tee /var/www/html/index.html > /dev/null
+
+          # -------------------------
+          # Java installation
+          # -------------------------
+          amazon-linux-extras enable java-openjdk11 -y
+          yum install -y java-11-openjdk-devel wget tar
+
+          # -------------------------
+          # Tomcat installation
+          # -------------------------
+          cd /home/ec2-user
+          wget https://archive.apache.org/dist/tomcat/tomcat-9/v9.0.91/bin/apache-tomcat-9.0.91.tar.gz
+          tar -xvzf apache-tomcat-9.0.91.tar.gz
+          rm -f apache-tomcat-9.0.91.tar.gz
+
+          mkdir -p Harish
+          mv apache-tomcat-9.0.91 Harish/tomcat9
+          chown -R ec2-user:ec2-user Harish
+          chmod -R 755 Harish
+
+          # -------------------------
+          # Tomcat systemd service
+          # -------------------------
+          tee /etc/systemd/system/tomcat.service > /dev/null << 'EOF'
+          [Unit]
+          Description=Apache Tomcat 9
+          After=network.target
+
+          [Service]
+          Type=forking
+          User=ec2-user
+          Group=ec2-user
+
+          Environment=JAVA_HOME=/usr/lib/jvm/java-11-openjdk
+          Environment=CATALINA_HOME=/home/ec2-user/Harish/tomcat9
+          Environment=CATALINA_BASE=/home/ec2-user/Harish/tomcat9
+
+          ExecStart=/home/ec2-user/Harish/tomcat9/bin/startup.sh
+          ExecStop=/home/ec2-user/Harish/tomcat9/bin/shutdown.sh
+
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          systemctl daemon-reload
+          systemctl enable tomcat
+          systemctl start tomcat
+
+          # -------------------------
+          # HelloApp WebApp setup
+          # -------------------------
+          mkdir -p /home/ec2-user/HelloApp/WEB-INF/classes
+          cat <<'EOF' > /home/ec2-user/HelloApp/WEB-INF/classes/HelloServlet.java
+          import java.io.*;
+          import javax.servlet.*;
+          import javax.servlet.http.*;
+
+          public class HelloServlet extends HttpServlet {
+              protected void doGet(HttpServletRequest req, HttpServletResponse resp)
+                      throws ServletException, IOException {
+                  resp.setContentType("text/html");
+                  PrintWriter out = resp.getWriter();
+                  out.println("<html><body><h1>Hello from CloudFormation + Tomcat!</h1></body></html>");
+              }
+          }
+          EOF
+
+          cat <<'EOF' > /home/ec2-user/HelloApp/WEB-INF/web.xml
+          <web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee
+                   http://xmlns.jcp.org/xml/ns/javaee/web-app_3_1.xsd"
+                   version="3.1">
+
+              <display-name>HelloApp</display-name>
+
+              <servlet>
+                  <servlet-name>HelloServlet</servlet-name>
+                  <servlet-class>HelloServlet</servlet-class>
+              </servlet>
+
+              <servlet-mapping>
+                  <servlet-name>HelloServlet</servlet-name>
+                  <url-pattern>/HelloServlet/hello</url-pattern>
+              </servlet-mapping>
+          </web-app>
+          EOF
+
+          # -------------------------
+          # Compile + Package WAR
+          # -------------------------
+          javac -classpath /home/ec2-user/Harish/tomcat9/lib/servlet-api.jar \
+                -d /home/ec2-user/HelloApp/WEB-INF/classes \
+                /home/ec2-user/HelloApp/WEB-INF/classes/HelloServlet.java
+
+          cd /home/ec2-user
+          jar -cvf HelloApp.war -C HelloApp/ .
+
+          # -------------------------
+          # Deploy WAR + restart Tomcat
+          # -------------------------
+          cp HelloApp.war /home/ec2-user/Harish/tomcat9/webapps/
+          systemctl restart tomcat
+
+      Tags:
+        - Key: Name
+          Value: AppInstance-CrossStack
+
+Outputs:
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref AppInstance
+  PublicIP:
+    Description: Public IP Address of EC2 Instance
+    Value: !GetAtt AppInstance.PublicIp
+  WebsiteURL:
+    Description: URL to access the website
+    Value: !Sub http://${AppInstance.PublicIp}

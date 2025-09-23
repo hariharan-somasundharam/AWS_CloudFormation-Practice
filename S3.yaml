@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creating S3 with CloudFormation for Optimized usage and effective cost management.
+
+Parameters: 
+  EnvType:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Environment type
+
+Resources: 
+  HarishS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: harish-s3-bucket-with-cf
+      LifecycleConfiguration: 
+        Rules:
+          - Id: MoveToInfrequentAccess
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: STANDARD_IA
+          
+          - Id: MoveToGlacier
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 90
+                StorageClass: GLACIER
+
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionTransitions:
+              - TransitionInDays: 30
+                StorageClass: STANDARD_IA
+            NoncurrentVersionExpirationInDays: 90
+
+          - Id: AbortIncompleteUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+      VersioningConfiguration:
+        Status: Enabled
+      WebsiteConfiguration: 
+        IndexDocument: index.html
+        ErrorDocument: error.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+      Tags:
+        - Key: Name
+          Value: HarishS3Bucket
+
+  HarishS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref HarishS3Bucket
+      PolicyDocument: 
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub ${HarishS3Bucket.Arn}/*
+          
+
+Outputs:
+  BucketName:
+    Description: Name of the website bucket
+    Value: !Ref HarishS3Bucket
+    Export:
+      Name: !Sub ${EnvType}-HarishS3BucketName
+
+  WebsiteURL:
+    Description: URL for the website
+    Value: !GetAtt HarishS3Bucket.WebsiteURL
+    Export:
+      Name: !Sub ${EnvType}-WebsiteURL
+
+  BucketARN:
+    Description: ARN of the website bucket
+    Value: !GetAtt HarishS3Bucket.Arn
+    Export:
+      Name: !Sub ${EnvType}-HarishS3BucketARN
