@@ -1,0 +1,287 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudWatch Dashboard and Alarms Configuration
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name [prod/staging/dev/uat]
+    Default: prod
+  
+  ALBArnSuffix:
+    Type: String
+    Description: Enter your ALB's ARN suffix (e.g., app/my-alb/1234567890abcdef)
+  
+  EC2InstanceId:
+    Type: String
+    Description: EC2 instance ID to monitor
+  
+  Region:
+    Type: String
+    Description: Enter your Instance region [eg us-east-1/us-west-2]
+    Default: us-east-1
+  
+  SNSTopicEmail:
+    Type: String
+    Description: Enter the email for subscription
+
+Resources:
+  CriticalAlarmsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${Environment}-critical-alarms-topic
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref SNSTopicEmail
+
+  WarningAlarmsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${Environment}-warning-alarms-topic
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref SNSTopicEmail
+
+  HighCPUCriticalAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Environment}-high-cpu-critical
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 2
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: 300
+      Statistic: Average
+      Threshold: 80
+      AlarmDescription: CPU utilization exceeds 80% (Critical)
+      AlarmActions:
+        - !Ref CriticalAlarmsTopic
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref EC2InstanceId
+      Tags:
+        - Key: Severity
+          Value: Critical
+
+  HighCPUWarningAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Environment}-high-cpu-warning
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: 2
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: 300
+      Statistic: Average
+      Threshold: 60
+      AlarmDescription: CPU utilization exceeds 60% (Warning)
+      AlarmActions:
+        - !Ref WarningAlarmsTopic
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref EC2InstanceId
+      Tags:
+        - Key: Severity
+          Value: Warning
+
+  LowCPUCreditsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Environment}-low-cpu-credits
+      ComparisonOperator: LessThanOrEqualToThreshold
+      EvaluationPeriods: 2
+      MetricName: CPUCreditBalance
+      Namespace: AWS/EC2
+      Period: 300
+      Statistic: Minimum
+      Threshold: 50
+      AlarmDescription: CPU credit balance below 50 (Critical)
+      AlarmActions:
+        - !Ref CriticalAlarmsTopic
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref EC2InstanceId
+      Tags:
+        - Key: Severity
+          Value: Critical
+
+  ProductionDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub ${Environment}-server-dashboard
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/EC2", "CPUUtilization", "InstanceId", "${EC2InstanceId}"]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${Region}",
+                "title": "EC2 CPU Utilization (%)",
+                "view": "gauge",
+                "stacked": false,
+                "yAxis": {
+                  "left": {
+                    "min": 0,
+                    "max": 100
+                  }
+                },
+                "annotations": {
+                  "horizontal": [
+                    {
+                      "color": "#ff0000",
+                      "label": "Critical (80%)",
+                      "value": 80,
+                      "fill": "above"
+                    },
+                    {
+                      "color": "#ff9900",
+                      "label": "Warning (60%)",
+                      "value": 60,
+                      "fill": "above"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "metric",
+              "x": 8,
+              "y": 0,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "${ALBArnSuffix}"]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${Region}",
+                "title": "ALB Request Count",
+                "view": "timeSeries",
+                "stacked": false
+              }
+            },
+            {
+              "type": "metric",
+              "x": 16,
+              "y": 0,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/EC2", "CPUCreditBalance", "InstanceId", "${EC2InstanceId}"]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${Region}",
+                "title": "CPU Credit Balance",
+                "view": "timeSeries",
+                "stacked": false,
+                "annotations": {
+                  "horizontal": [
+                    {
+                      "color": "#ff0000",
+                      "label": "Low Credits (50)",
+                      "value": 50,
+                      "fill": "below"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/EC2", "CPUCreditUsage", "InstanceId", "${EC2InstanceId}"]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${Region}",
+                "title": "CPU Credit Usage",
+                "view": "timeSeries",
+                "stacked": false
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 12,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/EC2", "CPUUtilization", "InstanceId", "${EC2InstanceId}", {"stat": "Average"}],
+                  ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "${ALBArnSuffix}", {"stat": "Sum"}],
+                  ["AWS/EC2", "CPUCreditBalance", "InstanceId", "${EC2InstanceId}", {"stat": "Average"}]
+                ],
+                "view": "singleValue",
+                "region": "${Region}",
+                "title": "Current Metrics Overview",
+                "period": 300
+              }
+            },
+            {
+              "type": "alarm",
+              "x": 12,
+              "y": 12,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Alarm Status Overview",
+                "region": "${Region}",
+                "alarms": [
+                  "arn:aws:cloudwatch:${Region}:${AWS::AccountId}:alarm:${Environment}-high-cpu-critical",
+                  "arn:aws:cloudwatch:${Region}:${AWS::AccountId}:alarm:${Environment}-high-cpu-warning",
+                  "arn:aws:cloudwatch:${Region}:${AWS::AccountId}:alarm:${Environment}-low-cpu-credits"
+                ]
+              }
+            }
+          ]
+        }
+
+  CloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/ec2/${Environment}-server-logs
+      RetentionInDays: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  CriticalAlarmsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${Environment}-critical-alarms-topic
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref SNSTopicEmail
+
+Outputs:
+  DashboardURL:
+    Description: URL of the CloudWatch dashboard
+    Value: !Sub https://console.aws.amazon.com/cloudwatch/home?region=${Region}#dashboards:name=${Environment}-server-dashboard
+
+  DashboardName:
+    Description: Name of the CloudWatch dashboard
+    Value: !Sub ${Environment}-server-dashboard
+
+  CriticalAlarmsTopicARN:
+    Description: ARN of the critical alarms SNS topic
+    Value: !Ref CriticalAlarmsTopic
+
+  WarningAlarmsTopicARN:
+    Description: ARN of the warning alarms SNS topic
+    Value: !Ref WarningAlarmsTopic
