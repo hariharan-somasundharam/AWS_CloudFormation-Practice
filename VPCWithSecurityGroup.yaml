@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creating a VPC using CloudFormation
+
+Parameters:
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    Description: Latest Amazon Linux 2 AMI ID
+
+Resources:
+  CfVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: CfVpc
+
+  CFsecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: CF_secGroup
+      GroupDescription: Security Group for VPC created using CloudFormation.
+      VpcId: !Ref CfVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: CF_secGroup
+
+  PublicCFsubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-west-2a
+      VpcId: !Ref CfVpc
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: Public Subnet 1
+
+  PublicCFsubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-west-2b
+      VpcId: !Ref CfVpc
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: Public Subnet 2
+
+  PrivateCFsubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-west-2a
+      VpcId: !Ref CfVpc
+      CidrBlock: 10.0.3.0/24
+      Tags:
+        - Key: Name
+          Value: Private Subnet 1
+
+  PrivateCFsubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-west-2b
+      VpcId: !Ref CfVpc
+      CidrBlock: 10.0.4.0/24
+      Tags:
+        - Key: Name
+          Value: Private Subnet 2
+
+  PublicrouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CfVpc
+      Tags:
+        - Key: Name
+          Value: Public Route Table
+
+  PrivaterouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CfVpc
+      Tags:
+        - Key: Name
+          Value: Private Route Table
+
+  PublicCFsubnet1ToPublicrouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicCFsubnet1
+      RouteTableId: !Ref PublicrouteTable
+
+  PublicCFsubnet2ToPublicrouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicCFsubnet2
+      RouteTableId: !Ref PublicrouteTable
+
+  PrivateCFsubnet1ToPrivaterouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateCFsubnet1
+      RouteTableId: !Ref PrivaterouteTable
+
+  PrivateCFsubnet2ToPrivaterouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateCFsubnet2
+      RouteTableId: !Ref PrivaterouteTable
+
+  CFigw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: CFigw
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref CfVpc
+      InternetGatewayId: !Ref CFigw
+
+  CFigwRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicrouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref CFigw
+
+Outputs:
+  CfVpcOutput:
+    Description: VPC ID
+    Value: !Ref CfVpc
+    Export:
+      Name: !Sub "${AWS::StackName}-VPCID"
+
+  SecurityGroupId:
+    Description: Security Group ID
+    Value: !Ref CFsecGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-SecurityGroupID"
+
+  PublicSubnet1Id:
+    Description: Public Subnet 1 ID in us-west-2a
+    Value: !Ref PublicCFsubnet1
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnet1ID"
+
+  PublicSubnet2Id:
+    Description: Public Subnet 2 ID in us-west-2a
+    Value: !Ref PublicCFsubnet2
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnet2ID"
