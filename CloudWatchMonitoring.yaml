@@ -1,0 +1,244 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudWatch Agent, Log Groups, Billing Alerts and Monitoring
+
+Parameters:
+  BillingAlertEmail:
+    Type: String
+    Description: Email address for billing alerts
+    Default: hariharan@humworld.in
+
+  MonthlyBillingThreshold:
+    Type: Number
+    Description: Monthly billing threshold in USD
+    Default: 50
+    MinValue: 0
+    MaxValue: 10000
+
+  EC2InstanceId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /my-app/ec2-instance-id
+
+Resources:
+  # CloudWatch Log Groups
+  ApplicationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /my-app/application
+      RetentionInDays: 30
+
+  AccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /my-app/access
+      RetentionInDays: 90
+
+  # IAM Role for CloudWatch Agent
+  CloudWatchAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Path: /
+
+  CloudWatchAgentInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref CloudWatchAgentRole
+      Path: /
+
+  # CloudWatch Agent Configuration (SSM Parameter)
+  CloudWatchAgentConfig:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: AmazonCloudWatch-linux
+      Type: String
+      Value: !Sub |
+        {
+          "agent": {
+            "metrics_collection_interval": 60,
+            "run_as_user": "root"
+          },
+          "metrics": {
+            "aggregation_dimensions": [["InstanceId"]],
+            "metrics_collected": {
+              "cpu": {
+                "measurement": ["cpu_usage_idle", "cpu_usage_iowait"],
+                "metrics_collection_interval": 60,
+                "totalcpu": false
+              },
+              "disk": {
+                "measurement": ["used_percent"],
+                "metrics_collection_interval": 60,
+                "resources": ["*"]
+              },
+              "mem": {
+                "measurement": ["mem_used_percent"],
+                "metrics_collection_interval": 60
+              }
+            }
+          },
+          "logs": {
+            "logs_collected": {
+              "files": {
+                "collect_list": [
+                  {
+                    "file_path": "/var/log/my-app/application.log",
+                    "log_group_name": "/my-app/application",
+                    "log_stream_name": "{instance_id}"
+                  },
+                  {
+                    "file_path": "/var/log/nginx/access.log",
+                    "log_group_name": "/my-app/access",
+                    "log_stream_name": "{instance_id}"
+                  }
+                ]
+              }
+            }
+          }
+        }
+
+  # Billing Alarm (Requires AWS Billing Access enabled)
+  MonthlyBillingAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: MonthlyBillingAlarm
+      AlarmDescription: Alarm when monthly estimated charges exceed threshold
+      MetricName: EstimatedCharges
+      Namespace: AWS/Billing
+      Statistic: Maximum
+      Period: 21600  # 6 hours (minimum for billing metrics)
+      EvaluationPeriods: 1
+      Threshold: !Ref MonthlyBillingThreshold
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      AlarmActions:
+        - !Ref BillingNotificationTopic
+      OKActions:
+        - !Ref BillingNotificationTopic
+
+  # SNS Topic for Billing Alerts
+  BillingNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: BillingAlertsTopic
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref BillingAlertEmail
+
+  # EC2 CPU Utilization Alarm
+  CPUUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: HighCPUUtilization
+      AlarmDescription: Alarm when CPU utilization is above 80%
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref EC2InstanceId  
+      AlarmActions:
+        - !Ref NotificationTopic
+
+  # Memory Utilization Alarm (using custom metric from CloudWatch Agent)
+  MemoryUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: HighMemoryUtilization
+      AlarmDescription: Alarm when memory utilization is above 85%
+      MetricName: mem_used_percent
+      Namespace: CWAgent
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 85
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref EC2InstanceId
+        - Name: objectname
+          Value: Memory
+      AlarmActions:
+        - !Ref NotificationTopic
+
+  # General Notification Topic
+  NotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: SystemAlertsTopic
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref BillingAlertEmail
+
+  # CloudWatch Dashboard
+  MonitoringDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: MyApp-Dashboard
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/EC2", "CPUUtilization", "InstanceId", "${EC2InstanceId}"],
+                  [".", "NetworkIn", ".", "."],
+                  [".", "NetworkOut", ".", "."]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "EC2 Instance Metrics"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["CWAgent", "mem_used_percent", "InstanceId", "${EC2InstanceId}"],
+                  [".", "disk_used_percent", ".", ".", "device", "xvda1"]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "System Metrics (CloudWatch Agent)"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  CloudWatchAgentRoleArn:
+    Description: IAM Role for CloudWatch Agent
+    Value: !GetAtt CloudWatchAgentRole.Arn
+
+  BillingTopicArn:
+    Description: SNS Topic for Billing Alerts
+    Value: !Ref BillingNotificationTopic
+
+  DashboardURL:
+    Description: CloudWatch Dashboard URL
+    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=MyApp-Dashboard
