@@ -1,0 +1,47 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2 Instance using existing VPC resources via Cross-Stack References
+
+Parameters:
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    Description: Latest Amazon Linux 2 AMI ID
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair for SSH access
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+
+  VPCStackName:
+    Type: String
+    Default: VPCWithSecurityGroup
+    Description: Name of the CloudFormation stack that contains the VPC and Security Group.
+
+Resources:
+  DevOpGitEC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: t3.micro
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - Fn::ImportValue:
+            Fn::Sub: "${VPCStackName}-SecurityGroupID"
+      SubnetId:
+        Fn::ImportValue:
+          Fn::Sub: "${VPCStackName}-PublicSubnet2ID"
+
+      Tags:
+        - Key: Name
+          Value: DevOp-Git-EC2
+
+Outputs:
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref DevOpGitEC2
+  PublicIP:
+    Description: Public IP Address of EC2 Instance
+    Value: !GetAtt DevOpGitEC2.PublicIp
+  WebsiteURL:
+    Description: URL to access the website
+    Value: !Sub http://${DevOpGitEC2.PublicIp}
