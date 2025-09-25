@@ -12,7 +12,7 @@ Resources:
   HarishS3Bucket:
     Type: AWS::S3::Bucket
     Properties: 
-      BucketName: harish-s3-bucket-with-cf
+      BucketName: your-prefered-bucket-unique-name
       LifecycleConfiguration: 
         Rules:
           - Id: MoveToInfrequentAccess
