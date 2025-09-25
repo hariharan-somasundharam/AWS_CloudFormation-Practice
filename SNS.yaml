@@ -5,15 +5,15 @@ Parameters:
   NotificationEmail:
     Type: String
     Description: Email address to receive alarm notifications
-    Default: hariharan@humworld.in
+    Default: your-email
     AllowedPattern: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
 
 Resources: 
   HarishSNSTopic:
     Type: AWS::SNS::Topic
     Properties:
-      DisplayName: Harish's CloudFormation SNS Topic
-      TopicName: Harish-CF-Alarm
+      DisplayName: your CloudFormation SNS Topic
+      TopicName: your-CF-Alarm
       KmsMasterKeyId: alias/aws/sns
 
   EmailSubscription:
