@@ -1,7 +1,7 @@
 [
-  {"ParameterKey": "ALBArnSuffix", "ParameterValue": "app/web-application-lb/76d8ff1fff3d07c2"},
-  {"ParameterKey": "SNSTopicEmail", "ParameterValue": "hariharan@humworld.in"},
-  {"ParameterKey": "EC2InstanceId", "ParameterValue": "i-0e3cc20fda23a3c03"},
-  {"ParameterKey": "Environment", "ParameterValue": "prod"},
-  {"ParameterKey": "Region", "ParameterValue": "us-west-2"}
+  {"ParameterKey": "ALBArnSuffix", "ParameterValue": "your-ALB-ARN"},
+  {"ParameterKey": "SNSTopicEmail", "ParameterValue": "your-email"},
+  {"ParameterKey": "EC2InstanceId", "ParameterValue": "your-EC2-ID"},
+  {"ParameterKey": "Environment", "ParameterValue": "your-env"},
+  {"ParameterKey": "Region", "ParameterValue": "your-specific-region"}
 ]   
