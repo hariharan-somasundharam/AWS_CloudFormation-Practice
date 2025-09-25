@@ -5,7 +5,7 @@ Parameters:
   BillingAlertEmail:
     Type: String
     Description: Email address for billing alerts
-    Default: hariharan@humworld.in
+    Default: your-email
 
   MonthlyBillingThreshold:
     Type: Number
